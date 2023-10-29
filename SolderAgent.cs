@@ -9,37 +9,61 @@ using UnityEngine;
 public class SolderAgent : Agent
 {
     public List<GameObject> enemies = new List<GameObject>();
-    public List<GameObject> checkpoints = new List<GameObject>();
-    public float rayCastLength = 60f;
-    public Vector3 startingPosition = new Vector3(-2923.3f, 0f, 293.6f);
+    public List<Transform> MainPathChecks = new List<Transform>();
+    public List<Transform> EnemyPathChecks = new List<Transform>();
+    public Vector3 startingPosition = new Vector3(-2923.3f, 0f, 840.9f);
     public CharacterController characterController;
     public float speed = 10f;
+    public float rayCastLength = 60f;
     public Animator animator;
-    private bool isWalking;
+  
 
-    private int currentEnemyIndex = 0;
+
+    private bool isWalking;
     private bool enemyKilled = false;
-    private int currentCheckpointGroup = 0;
-    private int currentCheckpointIndex = 0;
-    private bool collidedWithEnemy = false;
+    private Transform currentWaypoint;
+    private int currentWaypointIndex = 0;
+    private int currentEnemyIndex = 0;
     private object vectorAction;
+    private int mainPathCheckpointIndex;
+    private int branchPathCheckpointIndex;
+    //Variables to help me track the checkpoints
+    private int previousMainPathCheckpointIndex = -1;
+    private int previousBranchPathCheckpointIndex = -1;
+
+
+
+    [SerializeField] private MainPathCheckManager mainPathCheckpoints;
+    [SerializeField] private EnemyPathCheckManager branchPathCheckpoints;
+    [SerializeField] private string CheckpointTag;
 
     public override void Initialize()
     {
-        // Initialize the list of enemies and checkpoints
+        // Initialize the list of enemies
         foreach (GameObject Enemy in GameObject.FindGameObjectsWithTag("Enemy"))
         {
             enemies.Add(Enemy);
         }
 
-        // Add checkpoints
-        foreach (GameObject CheckToEnemy in GameObject.FindGameObjectsWithTag("CheckToEnemy"))
+        // Initialize the list of main path checkpoints
+        foreach (GameObject checkpointObject in GameObject.FindGameObjectsWithTag("MainPathCheck"))
         {
-            checkpoints.Add(CheckToEnemy);
+            MainPathChecks.Add(checkpointObject.transform); // Access the Transform component directly
         }
 
-        // Activate only the initial checkpoints (1, 2, and 3)
-        ActivateCheckpoints(0, 3);
+        // Initialize the list of enemy branch checkpoints
+        foreach (GameObject checkpointObject in GameObject.FindGameObjectsWithTag("EnemyPathCheck"))
+        {
+            EnemyPathChecks.Add(checkpointObject.transform); // Access the Transform component directly
+        }
+
+        // Initialize the first checkpoint
+        if (MainPathChecks.Count > 0)
+        {
+            currentWaypoint = MainPathChecks[currentWaypointIndex];
+        }
+
+
 
     }
 
@@ -58,22 +82,42 @@ public class SolderAgent : Agent
         }
         // Reposition agent, enemies, and checkpoints
         currentEnemyIndex = 0;
+        currentWaypointIndex = 0;
         enemyKilled = false;
-        currentCheckpointGroup = 0;
-        currentCheckpointIndex = 0;
+        mainPathCheckpointIndex = 0;
+        branchPathCheckpointIndex = 0;
+        previousMainPathCheckpointIndex = -1;
+        previousBranchPathCheckpointIndex = -1;
+
 
         //animations
         isWalking = false;
+        //animator.SetBool("IsWalking", isWalking);
 
-        //enemy COLLISION
-        collidedWithEnemy = false;
+        // Reset checkpoints
+        if (MainPathChecks.Count > 0)
+        {
+            currentWaypoint = MainPathChecks[currentWaypointIndex];
+        }
+        else
+        {
+            currentWaypoint = null;
+        }
 
-        // Activate only the initial checkpoints (1, 2, and 3)
-        ActivateCheckpoints(0, 3);
+
     }
 
     public override void CollectObservations(VectorSensor sensor)
     {
+
+        // Observations for the nearest checkpoint
+        if (currentWaypoint != null)
+        {
+            Vector3 toWaypoint = currentWaypoint.position - transform.position;
+            sensor.AddObservation(toWaypoint.normalized); // Direction to the nearest checkpoint
+            sensor.AddObservation(toWaypoint.magnitude);  // Distance to the nearest checkpoint
+        }
+
         // The position of the agent
         sensor.AddObservation(transform.localPosition.x);
         sensor.AddObservation(transform.localPosition.y);
@@ -105,17 +149,17 @@ public class SolderAgent : Agent
                 float distanceToPoison = Vector3.Distance(transform.position, hitObject.transform.position);
                 sensor.AddObservation(distanceToPoison);
             }
-            if (hitObject.CompareTag("CheckToEnemy"))
+            if (hitObject.CompareTag("EnemyPathCheck"))
             {
                 sensor.AddObservation(hitObject.transform.position);
-                float distanceCheckToEnemy = Vector3.Distance(transform.position, hitObject.transform.position);
-                sensor.AddObservation(distanceCheckToEnemy);
+                float distanceToEnemyPathCheck = Vector3.Distance(transform.position, hitObject.transform.position);
+                sensor.AddObservation(distanceToEnemyPathCheck);
             }
-            if (hitObject.CompareTag("CheckPoint"))
+            if (hitObject.CompareTag("MainPathCheck"))
             {
                 sensor.AddObservation(hitObject.transform.position);
-                float distanceToCheckPoint = Vector3.Distance(transform.position, hitObject.transform.position);
-                sensor.AddObservation(distanceToCheckPoint);
+                float distanceToMainPathCheck = Vector3.Distance(transform.position, hitObject.transform.position);
+                sensor.AddObservation(distanceToMainPathCheck);
             }
         }
 
@@ -138,14 +182,20 @@ public class SolderAgent : Agent
     {
         if (collision.gameObject.CompareTag("Enemy") && !enemyKilled)
         {
-            AddReward(10f);
+            AddReward(+6f);
+
             // Eliminate the enemy from the list and the scene
             enemies.RemoveAt(currentEnemyIndex);
-            Destroy(collision.gameObject);
+            // Delayed destruction of the game object after 5 seconds
+            StartCoroutine(DestroyAfterDelay(collision.gameObject, 2.0f));
+
+           
+
 
             // Check if all enemies have been eliminated
             if (enemies.Count == 0)
             {
+                //Debug.Log("COLLIDED WITH ENEMY11");
                 //EndEpisode();// Turn This back Onn
             }
             else
@@ -153,22 +203,78 @@ public class SolderAgent : Agent
                 // Move to the next enemy
                 currentEnemyIndex++;
                 enemyKilled = true;
+                //Debug.Log("COLLIDED WITH ENEMY");
 
-                // Activate the next set of checkpoints (4, 5, 6) when an enemy is killed
-                ActivateCheckpoints(currentCheckpointGroup * 3 + 3, currentCheckpointGroup * 3 + 6);
-                currentCheckpointGroup++;
             }
         }
         if (collision.collider.tag == "Wall")
         {
-            AddReward(-1);
+            AddReward(-3);
+            EndEpisode();
             //EndEpisode();// I have not decided on this
         }
         if (collision.collider.tag == "Poison")
         {
-            AddReward(-5);
+            AddReward(-6);
             EndEpisode();
         }
+
+
+
+        // The checkpoint integration using the collision method
+        if (collision.gameObject.CompareTag("MainPathCheck"))
+        {
+            int checkpointIndex = mainPathCheckpoints.GetCheckpointIndex(collision.gameObject);
+            if (checkpointIndex > previousMainPathCheckpointIndex)
+            {
+                MainPathCheckpointTriggered(true);
+                previousMainPathCheckpointIndex = checkpointIndex;
+
+                // Add a reward for passing the correct checkpoint on the main path
+                AddReward(1.0f);
+                Debug.Log("Passed the correct MAIN checkpoint with index: " + previousMainPathCheckpointIndex);
+
+            }
+            else
+            {
+                MainPathCheckpointTriggered(false);
+
+                // Apply a penalty for passing the wrong checkpoint on the main path
+                AddReward(-1.0f);
+                Debug.Log("Passed the Wrong MAIN checkpoint with index: " + previousMainPathCheckpointIndex);
+
+            }
+        }
+        else if (collision.gameObject.CompareTag("EnemyPathCheck"))
+        {
+            int checkpointIndex = branchPathCheckpoints.GetCheckpointIndex(collision.gameObject);
+            if (checkpointIndex > previousBranchPathCheckpointIndex)
+            {
+                BranchPathCheckpointTriggered(true);
+                previousBranchPathCheckpointIndex = checkpointIndex;
+
+                // Add a reward for passing the correct checkpoint on the branch path
+                AddReward(2.0f);
+                Debug.Log("Passed the correct ENEMY PATH checkpoint with index: " + previousBranchPathCheckpointIndex);
+
+            }
+            else
+            {
+                BranchPathCheckpointTriggered(false);
+
+                // Apply a smaller penalty for passing the wrong checkpoint on the branch path
+                AddReward(-0.5f);
+                Debug.Log("Passed the wrong ENEMY PATH checkpoint with index: " + previousBranchPathCheckpointIndex);
+
+            }
+        }
+    }
+
+    // Coroutine to destroy the game object after a delay
+    private IEnumerator DestroyAfterDelay(GameObject obj, float delay)
+    {
+        yield return new WaitForSeconds(delay);
+        Destroy(obj);
     }
 
     public override void OnActionReceived(ActionBuffers actions)
@@ -182,20 +288,9 @@ public class SolderAgent : Agent
         float moveSpeed = moveDirection * speed;
         transform.Translate(Vector3.forward * moveSpeed * Time.fixedDeltaTime);
 
-        // Calculate rotation based on turnDirection (e.g., -1 for left, 0 for no turn, 1 for right)
-        float rotation = turnDirection * 180; // You can adjust the factor to control the turn rate
+        // Calculate rotation based on turnDirection
+        float rotation = turnDirection * 180;
 
-        // Check the direction of the enemy
-        if (currentEnemyIndex < enemies.Count)
-        {
-            Vector3 enemyDirection = enemies[currentEnemyIndex].transform.position - transform.position;
-            float angleToEnemy = Vector3.SignedAngle(transform.forward, enemyDirection, Vector3.up);
-
-            // Apply rotation based on the angle to the enemy
-            rotation += angleToEnemy;
-        }
-
-        //animation set up
         // Check if the agent is moving
         if (moveSpeed != 0 || turnDirection != 0)
         {
@@ -207,6 +302,51 @@ public class SolderAgent : Agent
         }
         animator.SetBool("IsWalking", isWalking);
 
+        // Check if the agent is close enough to the current waypoint
+        if (currentWaypoint != null)
+        {
+            Vector3 toWaypoint = currentWaypoint.position - transform.position;
+            float angleToWaypoint = Vector3.SignedAngle(transform.forward, toWaypoint, Vector3.up);
+
+            // Apply rotation based on the angle to the waypoint
+            rotation += angleToWaypoint;
+
+            // Check if the agent is close enough to the current waypoint
+            if (toWaypoint.magnitude < 2f)
+            {
+                // Switch to the next waypoint based on whether it's a main path or enemy branch waypoint
+                if (currentWaypointIndex < MainPathChecks.Count - 1)
+                {
+                    currentWaypointIndex++;
+                    currentWaypoint = MainPathChecks[currentWaypointIndex];
+                }
+                else
+                {
+                    currentWaypointIndex++;
+                    if (currentWaypointIndex < MainPathChecks.Count + EnemyPathChecks.Count)
+                    {
+                        currentWaypoint = EnemyPathChecks[currentWaypointIndex - MainPathChecks.Count];
+                    }
+                    else
+                    {
+                        // The agent has reached the last checkpoint
+                       
+                    }
+                }
+            }
+        }
+
+        // Apply rotation based on the angle to the enemy
+        if (currentEnemyIndex < enemies.Count)
+        {
+            Vector3 enemyDirection = enemies[currentEnemyIndex].transform.position - transform.position;
+            float angleToEnemy = Vector3.SignedAngle(transform.forward, enemyDirection, Vector3.up);
+
+            // Apply rotation based on the angle to the enemy
+            rotation += angleToEnemy;
+        }
+
+        // Rotate the agent
         transform.Rotate(Vector3.up, rotation * Time.fixedDeltaTime);
 
         // Apply a penalty for every step to encourage the agent to reach the goal
@@ -231,47 +371,19 @@ public class SolderAgent : Agent
         actions[1] = turnInput;
     }
 
-
-
-    //Checkpoint Intergartion
-    public void PassCheckpoint(int checkpointIndex)
+    private void Start()
     {
-        // Reward the agent for passing a checkpoint
-        SetReward(1f);
-
-        // Deactivate the passed checkpoint
-        checkpoints[checkpointIndex].SetActive(false);
-
-        // Check if all active checkpoints have been passed
-        if (!CheckpointsActive())
-        {
-            // All active checkpoints have been passed; activate new ones
-            currentCheckpointIndex += 3; // Increment the current checkpoint index
-            ActivateCheckpoints(currentCheckpointIndex, currentCheckpointIndex + 2);
-        }
+        mainPathCheckpoints.OnCheckpointTriggered += MainPathCheckpointTriggered;
+        branchPathCheckpoints.OnCheckpointTriggered += BranchPathCheckpointTriggered;
+    }
+    private void MainPathCheckpointTriggered(bool isCorrectCheckpoint)
+    {
+       
     }
 
-    private bool CheckpointsActive()
+    private void BranchPathCheckpointTriggered(bool isCorrectCheckpoint)
     {
-        for (int i = currentCheckpointIndex; i < currentCheckpointIndex + 3; i++)
-        {
-            if (i < checkpoints.Count && checkpoints[i].activeSelf)
-            {
-                return true; // At least one checkpoint is active
-            }
-        }
-        return false; // No active checkpoints in the current group
-    }
-
-    private void ActivateCheckpoints(int startIndex, int endIndex)
-    {
-        for (int i = startIndex; i < endIndex; i++)
-        {
-            if (i >= 0 && i < checkpoints.Count)
-            {
-                checkpoints[i].SetActive(true);
-            }
-        }
+        
     }
 
 }
