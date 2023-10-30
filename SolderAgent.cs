@@ -8,7 +8,6 @@ using UnityEngine;
 
 public class SolderAgent : Agent
 {
-    public List<GameObject> enemies = new List<GameObject>();
     public List<Transform> MainPathChecks = new List<Transform>();
     public List<Transform> EnemyPathChecks = new List<Transform>();
     public Vector3 startingPosition = new Vector3(-2923.3f, 0f, 840.9f);
@@ -16,20 +15,30 @@ public class SolderAgent : Agent
     public float speed = 10f;
     public float rayCastLength = 60f;
     public Animator animator;
-  
+    //Testing
+    public GameObject Enemy1;
+    public GameObject Enemy2;
+    public GameObject Enemy3;
+    public GameObject Enemy4;
+
 
 
     private bool isWalking;
-    private bool enemyKilled = false;
     private Transform currentWaypoint;
     private int currentWaypointIndex = 0;
-    private int currentEnemyIndex = 0;
     private object vectorAction;
     private int mainPathCheckpointIndex;
     private int branchPathCheckpointIndex;
     //Variables to help me track the checkpoints
     private int previousMainPathCheckpointIndex = -1;
     private int previousBranchPathCheckpointIndex = -1;
+    //Testing again
+    private Vector3 initialPosition1;
+    private Vector3 initialPosition2;
+    private Vector3 initialPosition3;
+    private Vector3 initialPosition4;
+    private int currentTargetIndex;
+    private bool episodeEnded;
 
 
 
@@ -39,12 +48,6 @@ public class SolderAgent : Agent
 
     public override void Initialize()
     {
-        // Initialize the list of enemies
-        foreach (GameObject Enemy in GameObject.FindGameObjectsWithTag("Enemy"))
-        {
-            enemies.Add(Enemy);
-        }
-
         // Initialize the list of main path checkpoints
         foreach (GameObject checkpointObject in GameObject.FindGameObjectsWithTag("MainPathCheck"))
         {
@@ -74,16 +77,9 @@ public class SolderAgent : Agent
         transform.position = startingPosition;
         transform.rotation = Quaternion.Euler(Vector3.zero);
 
-        // Reset the list of enemies to include all available enemies in the scene
-        enemies.Clear();
-        foreach (GameObject enemy in GameObject.FindGameObjectsWithTag("Enemy"))
-        {
-            enemies.Add(enemy);
-        }
+
         // Reposition agent, enemies, and checkpoints
-        currentEnemyIndex = 0;
         currentWaypointIndex = 0;
-        enemyKilled = false;
         mainPathCheckpointIndex = 0;
         branchPathCheckpointIndex = 0;
         previousMainPathCheckpointIndex = -1;
@@ -103,6 +99,9 @@ public class SolderAgent : Agent
         {
             currentWaypoint = null;
         }
+
+        //testing here still
+        ResetEpisode();
 
 
     }
@@ -163,59 +162,37 @@ public class SolderAgent : Agent
             }
         }
 
-        // Information about the current enemy
-        if (currentEnemyIndex < enemies.Count)
-        {
-            sensor.AddObservation(enemies[currentEnemyIndex].transform.position);
-            float distanceToCurrentEnemy = Vector3.Distance(transform.position, enemies[currentEnemyIndex].transform.position);
-            sensor.AddObservation(distanceToCurrentEnemy);
-        }
-        else
-        {
-            // If all enemies are eliminated, provide no observations for the enemy
-            sensor.AddObservation(Vector3.zero);
-            sensor.AddObservation(0f);
-        }
     }
 
     public void OnCollisionEnter(Collision collision)
     {
-        if (collision.gameObject.CompareTag("Enemy") && !enemyKilled)
+        if (collision.gameObject.CompareTag("Enemy"))
         {
-            AddReward(+6f);
-
-            // Eliminate the enemy from the list and the scene
-            enemies.RemoveAt(currentEnemyIndex);
-            // Delayed destruction of the game object after 5 seconds
-            StartCoroutine(DestroyAfterDelay(collision.gameObject, 2.0f));
-
-           
-
-
-            // Check if all enemies have been eliminated
-            if (enemies.Count == 0)
+            //I am testing code here
+            if (collision.gameObject == GetTargetByIndex(currentTargetIndex))
             {
-                //Debug.Log("COLLIDED WITH ENEMY11");
-                //EndEpisode();// Turn This back Onn
-            }
-            else
-            {
-                // Move to the next enemy
-                currentEnemyIndex++;
-                enemyKilled = true;
-                //Debug.Log("COLLIDED WITH ENEMY");
+             // The agent collided with the correct target
+            DisableTarget(collision.gameObject);
+                currentTargetIndex++;
 
+                if (currentTargetIndex <= 4)
+                {
+                    // Provide a reward to the agent
+                    float reward = 20.0f;
+                    // Provide the reward to your reinforcement learning agent here
+                    Debug.Log("Agent hit target " + (currentTargetIndex - 1) + " and received a reward of " + reward);
+                }
             }
         }
         if (collision.collider.tag == "Wall")
         {
-            AddReward(-3);
+            AddReward(-3f);
             EndEpisode();
             //EndEpisode();// I have not decided on this
         }
         if (collision.collider.tag == "Poison")
         {
-            AddReward(-6);
+            AddReward(-6f);
             EndEpisode();
         }
 
@@ -268,13 +245,6 @@ public class SolderAgent : Agent
 
             }
         }
-    }
-
-    // Coroutine to destroy the game object after a delay
-    private IEnumerator DestroyAfterDelay(GameObject obj, float delay)
-    {
-        yield return new WaitForSeconds(delay);
-        Destroy(obj);
     }
 
     public override void OnActionReceived(ActionBuffers actions)
@@ -337,20 +307,20 @@ public class SolderAgent : Agent
         }
 
         // Apply rotation based on the angle to the enemy
-        if (currentEnemyIndex < enemies.Count)
-        {
-            Vector3 enemyDirection = enemies[currentEnemyIndex].transform.position - transform.position;
-            float angleToEnemy = Vector3.SignedAngle(transform.forward, enemyDirection, Vector3.up);
+        //if (currentEnemyIndex < enemies.Count)
+        //{
+           // Vector3 enemyDirection = enemies[currentEnemyIndex].transform.position - transform.position;
+           // float angleToEnemy = Vector3.SignedAngle(transform.forward, enemyDirection, Vector3.up);
 
             // Apply rotation based on the angle to the enemy
-            rotation += angleToEnemy;
-        }
+           // rotation += angleToEnemy;
+        //}
 
         // Rotate the agent
-        transform.Rotate(Vector3.up, rotation * Time.fixedDeltaTime);
+       // transform.Rotate(Vector3.up, rotation * Time.fixedDeltaTime);
 
         // Apply a penalty for every step to encourage the agent to reach the goal
-        AddReward(-0.01f);
+        //AddReward(-0.01f);
     }
 
     public override void Heuristic(in ActionBuffers actionsOut)
@@ -375,6 +345,16 @@ public class SolderAgent : Agent
     {
         mainPathCheckpoints.OnCheckpointTriggered += MainPathCheckpointTriggered;
         branchPathCheckpoints.OnCheckpointTriggered += BranchPathCheckpointTriggered;
+
+        //I am testing this codes
+        // Store the initial positions of each target
+        initialPosition1 = Enemy1.transform.position;
+        initialPosition2 = Enemy2.transform.position;
+        initialPosition3 = Enemy3.transform.position;
+        initialPosition4 = Enemy4.transform.position;
+        // Initialize variables
+        currentTargetIndex = 1;
+        episodeEnded = false;
     }
     private void MainPathCheckpointTriggered(bool isCorrectCheckpoint)
     {
@@ -386,4 +366,97 @@ public class SolderAgent : Agent
         
     }
 
-}
+    //I am testing this codes
+    private void ResetEpisode()
+    {
+        // Reset the episode by restoring all targets to their initial positions
+        Enemy1.transform.position = initialPosition1;
+        Enemy2.transform.position = initialPosition2;
+        Enemy3.transform.position = initialPosition3;
+        Enemy4.transform.position = initialPosition4;
+        // Reset episode-related variables
+        currentTargetIndex = 1;
+        episodeEnded = false;
+
+        // Re-enable the renderer and collider components to make the objects visible and interactable
+        Renderer renderer1 = Enemy1.GetComponent<Renderer>();
+        Renderer renderer2 = Enemy2.GetComponent<Renderer>();
+        Renderer renderer3 = Enemy3.GetComponent<Renderer>();
+        Renderer renderer4 = Enemy4.GetComponent<Renderer>();
+
+        Collider collider1 = Enemy1.GetComponent<Collider>();
+        Collider collider2 = Enemy2.GetComponent<Collider>();
+        Collider collider3 = Enemy3.GetComponent<Collider>();
+        Collider collider4 = Enemy4.GetComponent<Collider>();
+
+        if (renderer1 != null)
+        {
+            renderer1.enabled = true;
+        }
+        if (renderer2 != null)
+        {
+            renderer2.enabled = true;
+        }
+        if (renderer3 != null)
+        {
+            renderer3.enabled = true;
+        }
+        if (renderer4 != null)
+        {
+            renderer4.enabled = true;
+        }
+
+        if (collider1 != null)
+        {
+            collider1.enabled = true;
+        }
+        if (collider2 != null)
+        {
+            collider2.enabled = true;
+        }
+        if (collider3 != null)
+        {
+            collider3.enabled = true;
+        }
+        if (collider4 != null)
+        {
+            collider4.enabled = true;
+        }
+    }
+
+    //Testing still
+    private GameObject GetTargetByIndex(int index)
+    {
+        switch (index)
+        {
+            case 1:
+                return Enemy1;
+            case 2:
+                return Enemy2;
+            case 3:
+                return Enemy3;
+            case 4:
+                return Enemy4;
+            default:
+                return null;
+        }
+    }
+    //testing man
+    void DisableTarget(GameObject target)
+    {
+        // Disable the renderer and collider of the target object
+        Renderer renderer = target.GetComponent<Renderer>();
+        Collider collider = target.GetComponent<Collider>();
+
+        if (renderer != null)
+        {
+            renderer.enabled = false; // Make the object not visible
+        }
+
+        if (collider != null)
+        {
+            collider.enabled = false; // Make the object not interactable
+        }
+    }
+
+    }
